@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-primary: #C0392B;
+    --color-surface: #1A252F;
+  }
+
+  body {
+    @apply bg-white text-gray-900 antialiased;
+  }
+}
+
+@layer components {
+  /* Status badge utilities — used across all dashboards */
+  .badge-pending  { @apply bg-amber-100  text-amber-800  text-xs font-medium px-2.5 py-0.5 rounded-full; }
+  .badge-approved { @apply bg-green-100  text-green-800  text-xs font-medium px-2.5 py-0.5 rounded-full; }
+  .badge-rejected { @apply bg-red-100    text-red-800    text-xs font-medium px-2.5 py-0.5 rounded-full; }
+  .badge-paid     { @apply bg-teal-100   text-teal-800   text-xs font-medium px-2.5 py-0.5 rounded-full; }
+  .badge-draft    { @apply bg-gray-100   text-gray-600   text-xs font-medium px-2.5 py-0.5 rounded-full; }
+}
