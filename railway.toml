@@ -1,0 +1,9 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "backend/Taek.Api/Dockerfile"
+buildContext = "backend/Taek.Api"
+
+[deploy]
+startCommand = "dotnet Taek.Api.dll"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
