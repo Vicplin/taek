@@ -1,8 +1,14 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
 using System.Text;
+using Taek.Api.Middleware;
+using Taek.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Clear default claim mapping so "sub" claim is not mapped to ClaimTypes.NameIdentifier
+JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 
 // ─── Services ────────────────────────────────────────────────────────────────
 
@@ -64,7 +70,20 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
+// Supabase Client Injection
+builder.Services.AddScoped<Supabase.Client>(_ => 
+    new Supabase.Client(
+        builder.Configuration["Supabase:Url"]!, 
+        builder.Configuration["Supabase:ServiceRoleKey"]!, // Use Service Role Key for backend admin actions
+        new Supabase.SupabaseOptions
+        {
+            AutoRefreshToken = true,
+            AutoConnectRealtime = true
+        }
+    ));
+
 builder.Services.AddAuthorization();
+builder.Services.AddScoped<SupabaseStorageService>();
 
 // ─── Build ───────────────────────────────────────────────────────────────────
 
@@ -81,6 +100,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
+app.UseMiddleware<AppRoleMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 

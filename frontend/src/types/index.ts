@@ -6,28 +6,79 @@ export interface User {
   id: string
   email: string
   role: UserRole
-  full_name: string
-  ic_number?: string
-  dob?: string
-  gender?: 'male' | 'female'
-  phone?: string
-  created_at: string
+  full_name?: string
+  created_at?: string
 }
 
 // ─── Player Profile ───────────────────────────────────────────────────────────
-export type BeltRank =
-  | 'white' | 'yellow' | 'orange' | 'green'
-  | 'blue' | 'red' | 'black_1dan' | 'black_2dan'
-  | 'black_3dan' | 'black_4dan' | 'black_5dan'
-
 export interface PlayerProfile {
   id: string
   user_id: string
-  belt_rank: BeltRank
-  weight_kg: number
   club_id?: string
-  state: string
-  country: string
+  date_of_birth?: string
+  gender?: string
+  weight_kg?: number
+  height_cm?: number
+  ic_number?: string
+  nationality?: string
+  phone?: string
+  belt_rank?: string
+  state?: string
+  emergency_contact_name?: string
+  emergency_contact_phone?: string
+  avatar_url?: string
+}
+
+export interface BeltHistoryEntry {
+  id: string
+  player_id: string
+  belt_color: string
+  awarded_at: string
+  awarded_by?: string
+}
+
+export interface WeightHistoryEntry {
+  id: string
+  player_id: string
+  weight_kg: number
+  recorded_at: string
+}
+
+// ─── Coach Profile ────────────────────────────────────────────────────────────
+export interface CoachProfile {
+  id: string
+  user_id: string
+  club_id?: string
+  certification_level?: string
+  licence_no?: string
+  belt_rank?: string
+  affiliated_club_id?: string
+  state?: string
+  phone?: string
+  avatar_url?: string
+  verified: boolean
+}
+
+export interface CoachRosterEntry {
+  id: string
+  coach_user_id: string
+  player_user_id: string
+  status: 'pending' | 'accepted' | 'declined' | 'removed'
+  invited_at: string
+  responded_at?: string
+}
+
+// ─── Organiser Profile ────────────────────────────────────────────────────────
+export interface OrganiserProfile {
+  id: string
+  user_id: string
+  org_name: string
+  logo_url?: string
+  contact_name?: string
+  contact_email?: string
+  contact_phone?: string
+  state?: string
+  verification_status: 'pending' | 'verified' | 'rejected'
 }
 
 // ─── Event ───────────────────────────────────────────────────────────────────
@@ -47,6 +98,8 @@ export interface Event {
 }
 
 // ─── Event Category ───────────────────────────────────────────────────────────
+export type BeltRank = string;
+
 export interface EventCategory {
   id: string
   event_id: string

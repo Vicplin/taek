@@ -1,23 +1,88 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@source "../../Coach/src/**/*.{js,ts,jsx,tsx}";
 
-@layer base {
-  :root {
-    --color-primary: #C0392B;
-    --color-surface: #1A252F;
-  }
-
-  body {
-    @apply bg-white text-gray-900 antialiased;
-  }
+:root {
+  /* Design System Colors */
+  --color-deep-black: #0D0D0D;
+  --color-arena-red: #E63946;
+  --color-stealth-grey: #1A1A1A;
+  --color-gray: #888888;
+  
+  --background: var(--color-deep-black);
+  --foreground: #ffffff;
 }
 
-@layer components {
-  /* Status badge utilities — used across all dashboards */
-  .badge-pending  { @apply bg-amber-100  text-amber-800  text-xs font-medium px-2.5 py-0.5 rounded-full; }
-  .badge-approved { @apply bg-green-100  text-green-800  text-xs font-medium px-2.5 py-0.5 rounded-full; }
-  .badge-rejected { @apply bg-red-100    text-red-800    text-xs font-medium px-2.5 py-0.5 rounded-full; }
-  .badge-paid     { @apply bg-teal-100   text-teal-800   text-xs font-medium px-2.5 py-0.5 rounded-full; }
-  .badge-draft    { @apply bg-gray-100   text-gray-600   text-xs font-medium px-2.5 py-0.5 rounded-full; }
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  
+  /* Custom Colors */
+  --color-deep-black: var(--color-deep-black);
+  --color-arena-red: var(--color-arena-red);
+  --color-stealth-grey: var(--color-stealth-grey);
+  
+  /* Fonts */
+  --font-rajdhani: var(--font-rajdhani);
+  --font-orbitron: var(--font-orbitron);
+
+  /* Animations */
+  @keyframes scroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+    20%, 40%, 60%, 80% { transform: translateX(4px); }
+  }
+  @keyframes shiny {
+    0% { left: -100%; }
+    100% { left: 100%; }
+  }
+  
+  --animate-scroll: scroll 20s linear infinite;
+  --animate-shake: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+  --animate-shiny: shiny 3s infinite linear;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-rajdhani), sans-serif;
+}
+
+::selection {
+  background: var(--color-arena-red);
+  color: #ffffff;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-orbitron), sans-serif;
+}
+
+.card-3d {
+  perspective: 1200px;
+}
+
+.card-inner-3d {
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 0.7s;
+}
+
+.group:hover .card-inner-3d {
+  transform: rotateY(180deg);
+}
+
+.card-face {
+  backface-visibility: hidden;
+}
+
+.card-back {
+  transform: rotateY(180deg);
 }
