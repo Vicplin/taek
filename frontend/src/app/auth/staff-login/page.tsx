@@ -33,35 +33,55 @@ export default function StaffLoginPage() {
     setLoading(true);
 
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
       if (signInError) {
-        setError(signInError.message || 'Invalid email or password.');
+        setError(signInError.message);
         return;
       }
 
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setError('Authentication failed. Please try again.');
-        return;
+      if (data.session) {
+        const token = data.session.access_token;
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+        
+        // DEBUG: Call debug endpoint instead of verify-staff
+        const debugRes = await fetch(`${apiUrl}/api/auth/debug`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const debugData = await debugRes.json();
+        console.log('DEBUG:', JSON.stringify(debugData, null, 2));
+
+        // Verify staff role via API
+        const res = await fetch(`${apiUrl}/api/auth/verify-staff`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (!res.ok) {
+          await supabase.auth.signOut();
+          const resData = await res.json().catch(() => ({}));
+          setError(resData.error || 'You do not have staff access.');
+          return;
+        }
+
+        const { role } = await res.json();
+        const redirect = ROLE_REDIRECTS[role];
+
+        if (!redirect) {
+          setError('Your account does not have staff access.');
+          await supabase.auth.signOut();
+          return;
+        }
+
+        router.push(redirect);
+      } else {
+        setError('Invalid response from server.');
       }
-
-      const { data: profile } = await supabase
-        .from('users')
-        .select('role')
-        .eq('id', user.id)
-        .single();
-
-      const role = profile?.role ?? 'public';
-      const redirect = ROLE_REDIRECTS[role];
-
-      if (!redirect) {
-        setError('Your account does not have staff access.');
-        await supabase.auth.signOut();
-        return;
-      }
-
-      router.push(redirect);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Unable to sign in.');
     } finally {

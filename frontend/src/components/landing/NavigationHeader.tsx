@@ -81,6 +81,7 @@ export default function NavigationHeader() {
               src="/images/TaekLogoDark.png" 
               alt="TAEK" 
               fill
+              sizes="(max-width: 768px) 100vw, 200px"
               className="object-contain"
               priority
             />

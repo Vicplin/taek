@@ -1,168 +1,150 @@
--- Phase 0.5 — Full Database Schema Design
--- Based on requirements: UUID keys, TIMESTAMPTZ, RLS enabled
+-- Schema aligned with Fix.md
+-- This file provides a high-level overview of the schema.
+-- Please refer to supabase/migrations/ for the full, idempotent schema definitions, 
+-- including all tables (categories, teams, etc.), RLS policies, and triggers.
 
--- 1. Users (extends auth.users)
-create table if not exists public.users (
-  id uuid references auth.users not null primary key,
-  email text unique not null,
-  full_name text,
-  role text check (role in ('admin', 'organiser', 'coach', 'player')) not null default 'player',
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
-alter table public.users enable row level security;
-
--- 2. Clubs
-create table if not exists public.clubs (
+-- 1. Reference Tables
+create table if not exists public.races (
   id uuid default gen_random_uuid() primary key,
-  name text not null,
-  coach_id uuid references public.users(id) not null,
-  location text,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
-alter table public.clubs enable row level security;
-
--- 3. Player Profiles
-create table if not exists public.player_profiles (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references public.users(id) not null unique,
-  club_id uuid references public.clubs(id),
-  date_of_birth date,
-  gender text check (gender in ('male', 'female', 'other')),
-  weight_kg numeric,
-  height_cm numeric,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
-alter table public.player_profiles enable row level security;
-
--- 4. Coach Profiles
-create table if not exists public.coach_profiles (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references public.users(id) not null unique,
-  club_id uuid references public.clubs(id),
-  certification_level text,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
-alter table public.coach_profiles enable row level security;
-
--- 5. Belt History
-create table if not exists public.belt_history (
-  id uuid default gen_random_uuid() primary key,
-  player_id uuid references public.player_profiles(id) not null,
-  belt_color text not null,
-  awarded_at date not null,
-  awarded_by text,
+  name text not null unique,
   created_at timestamptz default now()
 );
-alter table public.belt_history enable row level security;
 
--- 6. Events
-create table if not exists public.events (
+create table if not exists public.belt_ranks (
   id uuid default gen_random_uuid() primary key,
-  organiser_id uuid references public.users(id) not null,
-  title text not null,
-  description text,
-  start_date timestamptz not null,
-  end_date timestamptz not null,
-  location text,
-  status text check (status in ('draft', 'published', 'completed', 'cancelled')) default 'draft',
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
-alter table public.events enable row level security;
-
--- 7. Event Categories
-create table if not exists public.event_categories (
-  id uuid default gen_random_uuid() primary key,
-  event_id uuid references public.events(id) not null,
-  name text not null, -- e.g., "Senior Male Black Belt"
-  type text check (type in ('sparring', 'poomsae', 'demonstration')),
+  name text not null unique,
+  sort_order int default 0,
   created_at timestamptz default now()
 );
-alter table public.event_categories enable row level security;
 
--- 8. Weight Classes
+create table if not exists public.genders (
+  id uuid default gen_random_uuid() primary key,
+  name text not null unique,
+  created_at timestamptz default now()
+);
+
+create table if not exists public.age_groups (
+  id uuid default gen_random_uuid() primary key,
+  name text not null unique,
+  min_age int,
+  max_age int,
+  created_at timestamptz default now()
+);
+
 create table if not exists public.weight_classes (
   id uuid default gen_random_uuid() primary key,
-  category_id uuid references public.event_categories(id) not null,
-  name text not null, -- e.g., "Under 58kg"
+  age_group_id uuid references public.age_groups(id),
+  gender_id uuid references public.genders(id),
+  name text not null,
   min_weight_kg numeric,
   max_weight_kg numeric,
   created_at timestamptz default now()
 );
-alter table public.weight_classes enable row level security;
 
--- 9. Registrations
-create table if not exists public.registrations (
+create table if not exists public.divisions (
   id uuid default gen_random_uuid() primary key,
-  event_id uuid references public.events(id) not null,
-  player_id uuid references public.player_profiles(id) not null,
-  category_id uuid references public.event_categories(id) not null,
-  weight_class_id uuid references public.weight_classes(id),
-  status text check (status in ('pending', 'approved', 'rejected', 'withdrawn')) default 'pending',
-  payment_status text check (payment_status in ('unpaid', 'paid', 'refunded')) default 'unpaid',
+  name text not null unique,
+  created_at timestamptz default now()
+);
+
+create table if not exists public.taegeuks (
+  id uuid default gen_random_uuid() primary key,
+  name text not null unique,
+  created_at timestamptz default now()
+);
+
+create table if not exists public.break_types (
+  id uuid default gen_random_uuid() primary key,
+  name text not null unique,
+  created_at timestamptz default now()
+);
+
+create table if not exists public.kick_types (
+  id uuid default gen_random_uuid() primary key,
+  name text not null unique,
+  created_at timestamptz default now()
+);
+
+create table if not exists public.vr_types (
+  id uuid default gen_random_uuid() primary key,
+  name text not null unique,
+  created_at timestamptz default now()
+);
+
+-- 2. Core Tables
+
+create table if not exists public.users (
+  id uuid references auth.users not null primary key,
+  email text not null,
+  role text not null check (role in ('individual', 'club', 'parent', 'admin', 'staff', 'organiser', 'referee')),
+  full_name text,
+  phone text,
+  force_password_change boolean default false,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
-alter table public.registrations enable row level security;
 
--- 10. Registration Docs
-create table if not exists public.registration_docs (
-  id uuid default gen_random_uuid() primary key,
-  registration_id uuid references public.registrations(id) not null,
-  type text not null, -- e.g., "waiver", "medical"
-  file_url text not null,
-  uploaded_at timestamptz default now()
-);
-alter table public.registration_docs enable row level security;
-
--- 11. Notifications
-create table if not exists public.notifications (
+create table if not exists public.clubs (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references public.users(id) not null,
-  title text not null,
-  message text not null,
-  read boolean default false,
-  created_at timestamptz default now()
+  name text not null,
+  abbreviation text,
+  logo_url text,
+  contact_person text,
+  contact_number text,
+  status text default 'pending' check (status in ('pending', 'approved', 'rejected')),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
 );
-alter table public.notifications enable row level security;
 
--- 12. Audit Logs
-create table if not exists public.audit_logs (
+create table if not exists public.players (
   id uuid default gen_random_uuid() primary key,
-  user_id uuid references public.users(id),
-  action text not null,
-  table_name text not null,
-  record_id uuid not null,
-  details jsonb,
-  created_at timestamptz default now()
+  user_id uuid references public.users(id) not null,
+  full_name text not null,
+  ic_number text,
+  is_foreign boolean default false,
+  date_of_birth date,
+  gender_id uuid references public.genders(id),
+  race_id uuid references public.races(id),
+  belt_rank_id uuid references public.belt_ranks(id),
+  weight_kg numeric,
+  height_cm numeric,
+  club_id uuid references public.clubs(id),
+  age_group text,
+  weight_class text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
 );
-alter table public.audit_logs enable row level security;
 
--- RLS Policies (Basic Template)
--- We use 'do' blocks or simple 'create policy if not exists' logic
--- NOTE: Postgres doesn't support 'create policy if not exists' natively in all versions easily without a do block.
--- The simplest way to avoid errors is to drop the policy if it exists and recreate it, or wrap in a do block.
+create table if not exists public.organiser_profiles (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.users(id) not null,
+  org_name text not null,
+  contact_name text,
+  contact_email text,
+  contact_phone text,
+  logo_url text,
+  state text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
 
-do $$
-begin
-  if not exists (select 1 from pg_policies where policyname = 'Users can view own data' and tablename = 'users') then
-    create policy "Users can view own data" on public.users for select using (auth.uid() = id);
-  end if;
+create table if not exists public.tournaments (
+  id uuid default gen_random_uuid() primary key,
+  organiser_id uuid references public.users(id),
+  title text not null,
+  description text,
+  image text,
+  location text,
+  start_date timestamptz,
+  end_date timestamptz,
+  registration_open timestamptz,
+  registration_close timestamptz,
+  max_participants integer,
+  status text default 'upcoming' check (status in ('upcoming', 'registration_open', 'registration_close', 'full', 'ongoing', 'completed', 'cancelled')),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
 
-  if not exists (select 1 from pg_policies where policyname = 'Users can update own data' and tablename = 'users') then
-    create policy "Users can update own data" on public.users for update using (auth.uid() = id);
-  end if;
-
-  if not exists (select 1 from pg_policies where policyname = 'Public can view published events' and tablename = 'events') then
-    create policy "Public can view published events" on public.events for select using (status = 'published');
-  end if;
-
-  if not exists (select 1 from pg_policies where policyname = 'Organisers can manage own events' and tablename = 'events') then
-    create policy "Organisers can manage own events" on public.events for all using (auth.uid() = organiser_id);
-  end if;
-end
-$$;
+-- NOTE: Other tables (tournament_categories, kyorugi_categories, tournament_registrations, teams, club_payments, etc.)
+-- are defined in supabase/migrations/20240523000001_core_schema.sql

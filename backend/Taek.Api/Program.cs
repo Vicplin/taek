@@ -1,7 +1,8 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
-using System.Text;
+using System.Security.Claims;
+using System.Net.Http;
 using Taek.Api.Middleware;
 using Taek.Api.Services;
 
@@ -9,10 +10,12 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Clear default claim mapping so "sub" claim is not mapped to ClaimTypes.NameIdentifier
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
+JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
 
 // ─── Services ────────────────────────────────────────────────────────────────
 
 builder.Services.AddControllers();
+builder.Services.AddHttpClient();
 builder.Services.AddEndpointsApiExplorer();
 
 // Swagger
@@ -21,11 +24,12 @@ builder.Services.AddSwaggerGen(c =>
     c.SwaggerDoc("v1", new() { Title = "TAEK API", Version = "v1" });
     c.AddSecurityDefinition("Bearer", new()
     {
-        Description = "JWT Authorization header. Example: 'Bearer {token}'",
+        Description = "Enter your JWT token only (without 'Bearer')",
         Name = "Authorization",
         In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT"
     });
     c.AddSecurityRequirement(new()
     {
@@ -53,20 +57,55 @@ builder.Services.AddCors(options =>
     });
 });
 
-// JWT — Supabase issues standard JWTs; we validate using the project JWT secret
+// Fetch JWKS manually at startup
+var supabaseUrl = builder.Configuration["Supabase:Url"]!;
+var jwksUri = $"{supabaseUrl}/auth/v1/.well-known/jwks.json";
+
+IssuerSigningKeyResolver signingKeyResolver;
+using (var http = new HttpClient())
+{
+    http.Timeout = TimeSpan.FromSeconds(30);
+    var jwksJson = await http.GetStringAsync(jwksUri);
+    var jwks = new JsonWebKeySet(jwksJson);
+    var keys = jwks.GetSigningKeys();
+    signingKeyResolver = (token, securityToken, kid, parameters) => keys;
+}
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        var jwtSecret = builder.Configuration["Supabase:JwtSecret"]
-            ?? throw new InvalidOperationException("Supabase:JwtSecret is not configured.");
-
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
-            ValidateIssuer = false,   // Supabase does not set iss in dev
-            ValidateAudience = false,
-            ClockSkew = TimeSpan.FromSeconds(30),
+            IssuerSigningKeyResolver = signingKeyResolver,
+            ValidateIssuer = true,
+            ValidIssuer = $"{supabaseUrl}/auth/v1",
+            ValidateAudience = true,
+            ValidAudience = "authenticated",
+            ClockSkew = TimeSpan.Zero,
+            RoleClaimType = ClaimTypes.Role,
+            NameClaimType = "sub"
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnAuthenticationFailed = context =>
+            {
+                Console.WriteLine($"JWT Auth failed: {context.Exception.GetType().Name}: {context.Exception.Message}");
+                Console.WriteLine($"JWT Auth failed inner: {context.Exception.InnerException?.Message}");
+                return Task.CompletedTask;
+            },
+            OnTokenValidated = context =>
+            {
+                var claims = context.Principal?.Claims.Select(c => $"{c.Type}={c.Value}");
+                Console.WriteLine($"JWT Token validated. Claims: {string.Join(", ", claims ?? [])}");
+                return Task.CompletedTask;
+            },
+            OnMessageReceived = context =>
+            {
+                Console.WriteLine($"JWT received, token present: {!string.IsNullOrEmpty(context.Token)}");
+                return Task.CompletedTask;
+            }
         };
     });
 
@@ -74,12 +113,12 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddScoped<Supabase.Client>(_ => 
     new Supabase.Client(
         builder.Configuration["Supabase:Url"]!, 
-        builder.Configuration["Supabase:ServiceRoleKey"]!, // Use Service Role Key for backend admin actions
-        new Supabase.SupabaseOptions
-        {
-            AutoRefreshToken = true,
-            AutoConnectRealtime = true
-        }
+        builder.Configuration["Supabase:ServiceRoleKey"]!, 
+        new Supabase.SupabaseOptions 
+        { 
+            AutoRefreshToken = false, 
+            AutoConnectRealtime = false 
+        } 
     ));
 
 builder.Services.AddAuthorization();
@@ -97,22 +136,14 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "TAEK API v1"));
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseMiddleware<AppRoleMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
-
-// ─── Health check (Phase 0 verification) ─────────────────────────────────────
-app.MapGet("/health", () => Results.Ok(new
-{
-    status = "ok",
-    service = "TAEK API",
-    version = "0.1.0",
-    timestamp = DateTime.UtcNow
-}))
-.WithTags("Health")
-.AllowAnonymous();
 
 app.Run();

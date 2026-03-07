@@ -12,7 +12,12 @@ public class AppUser : Supabase.Postgrest.Models.BaseModel
     [Supabase.Postgrest.Attributes.Column("full_name")]
     public string? FullName { get; set; }
 
+    [Supabase.Postgrest.Attributes.Column("phone")]
+    public string? Phone { get; set; }
+
     [Supabase.Postgrest.Attributes.Column("role")]
     public string Role { get; set; } = default!;
-}
 
+    [Supabase.Postgrest.Attributes.Column("force_password_change")]
+    public bool ForcePasswordChange { get; set; } = false;
+}

@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Taek.Api.Controllers;
 
 [ApiController]
-[Route("[controller]")]
+[Route("api/[controller]")]
 public class HealthController : ControllerBase
 {
     private readonly IConfiguration _config;

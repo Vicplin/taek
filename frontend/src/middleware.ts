@@ -3,6 +3,13 @@ import type { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
 export async function middleware(req: NextRequest) {
+  if (req.nextUrl.pathname === '/@vite/client') {
+    return new NextResponse('export {};', {
+      status: 200,
+      headers: { 'content-type': 'application/javascript; charset=utf-8' },
+    })
+  }
+
   const res = NextResponse.next()
 
   const supabase = createServerClient(
@@ -51,5 +58,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard', '/admin/:path*', '/organiser/:path*', '/coach/:path*', '/player/:path*'],
+  matcher: ['/@vite/client', '/dashboard', '/admin/:path*', '/organiser/:path*', '/coach/:path*', '/player/:path*'],
 }

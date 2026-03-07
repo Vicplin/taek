@@ -2,22 +2,25 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Supabase.Gotrue;
 using Taek.Api.Models.Auth;
-using Taek.Api.Attributes;
 using Taek.Api.Models.Db;
+using System.Security.Claims;
+using System.Net.Http;
 
 namespace Taek.Api.Controllers;
 
 [ApiController]
-[Route("auth")]
+[Route("api/auth")]
 public class AuthController : ControllerBase
 {
     private readonly Supabase.Client _supabase;
     private readonly ILogger<AuthController> _logger;
+    private readonly IConfiguration _configuration;
 
-    public AuthController(Supabase.Client supabase, ILogger<AuthController> logger)
+    public AuthController(Supabase.Client supabase, ILogger<AuthController> logger, IConfiguration configuration)
     {
         _supabase = supabase;
         _logger = logger;
+        _configuration = configuration;
     }
 
     /// <summary>
@@ -28,37 +31,32 @@ public class AuthController : ControllerBase
     {
         try
         {
+            // Domain check
+            var restrictedDomains = new[] { "@taekadmin.com", "@taekclub.com", "@taekorg.com" };
+            if (restrictedDomains.Any(d => request.Email.EndsWith(d, StringComparison.OrdinalIgnoreCase)))
+            {
+                return BadRequest(new { error = "This email domain is not available for public registration." });
+            }
+
             // 1. Sign up with Supabase Auth
-            var session = await _supabase.Auth.SignUp(request.Email, request.Password);
+            var options = new SignUpOptions 
+            { 
+                Data = new Dictionary<string, object> 
+                { 
+                    { "full_name", request.FullName },
+                    { "phone", request.PhoneNumber ?? "" }
+                } 
+            };
+            var session = await _supabase.Auth.SignUp(request.Email, request.Password, options);
             
             if (session?.User == null)
             {
                 return BadRequest(new { error = "Registration failed. User could not be created." });
             }
 
-            // 2. The public.users table should be populated via the client-side or trigger, 
-            // but for robust backend-first auth, we can insert it here using the Service Role client.
-            // Note: Since we use the Service Role key in Program.cs, RLS is bypassed.
+            // The DB trigger 'on_auth_user_created' will automatically insert into public.users with role = 'individual'.
             
-            var userId = session.User.Id;
-
-            // Check if user already exists in public.users (idempotency)
-            var existingUser = await _supabase.From<AppUser>().Where(x => x.Id == userId).Single();
-            
-            if (existingUser == null)
-            {
-                var newUser = new AppUser
-                {
-                    Id = userId,
-                    Email = request.Email,
-                    FullName = request.FullName,
-                    Role = request.Role // player, coach, organiser
-                };
-
-                await _supabase.From<AppUser>().Insert(newUser);
-            }
-
-            return Ok(new { message = "Registration successful. Please verify your email.", userId });
+            return Ok(new { message = "Registration successful.", userId = session.User.Id });
         }
         catch (Exception ex)
         {
@@ -68,63 +66,124 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Logs in a user and returns a JWT session.
+    /// Verifies the user is a regular user (individual or parent)
     /// </summary>
-    [HttpPost("login")]
-    public async Task<IActionResult> Login([FromBody] LoginRequest request)
+    [HttpGet("verify-user")]
+    [Authorize]
+    public IActionResult VerifyUser()
     {
-        try
-        {
-            var session = await _supabase.Auth.SignIn(request.Email, request.Password);
+        var role = User.FindAll(ClaimTypes.Role)
+            .Select(c => c.Value)
+            .FirstOrDefault(r => r is "individual" or "parent" or "club" or "organiser" or "admin");
 
-            if (session?.User == null || string.IsNullOrEmpty(session.AccessToken))
-            {
-                return Unauthorized(new { error = "Invalid credentials" });
-            }
+        if (role == null)
+            return Unauthorized(new { error = "No app role found." });
 
-            return Ok(new
-            {
-                access_token = session.AccessToken,
-                refresh_token = session.RefreshToken,
-                user = new
-                {
-                    id = session.User.Id,
-                    email = session.User.Email,
-                    role = session.User.Role // This is the internal Supabase role, not our app role. App role is in public.users.
-                }
-            });
-        }
-        catch (Exception ex)
+        if (role is "admin" or "organiser" or "club")
+            return Unauthorized(new { error = "Please use the staff login page." });
+
+        return Ok(new { role });
+    }
+
+    /// <summary>
+    /// Verifies the user is a staff member (admin, coach or organiser)
+    /// </summary>
+    [HttpGet("verify-staff")]
+    [Authorize]
+    public IActionResult VerifyStaff()
+    {
+        var role = User.FindAll(ClaimTypes.Role)
+            .Select(c => c.Value)
+            .FirstOrDefault(r => r is "individual" or "parent" or "club" or "organiser" or "admin");
+
+        if (role == null)
+            return Unauthorized(new { error = "No app role found." });
+
+        if (role is not ("admin" or "organiser" or "club"))
+            return Unauthorized(new { error = "You do not have staff access." });
+
+        return Ok(new { role });
+    }
+
+    [HttpGet("debug")]
+    [Authorize]
+    public IActionResult Debug()
+    {
+        var claims = User.Claims.Select(c => new { c.Type, c.Value }).ToList();
+        var isAuthenticated = User.Identity?.IsAuthenticated;
+        var role = User.FindFirstValue(ClaimTypes.Role);
+
+        return Ok(new
         {
-            return Unauthorized(new { error = ex.Message });
-        }
+            isAuthenticated,
+            role,
+            claims
+        });
     }
 
     /// <summary>
     /// Refreshes the JWT token.
     /// </summary>
     [HttpPost("refresh")]
-    public async Task<IActionResult> Refresh([FromBody] RefreshRequest request)
+    public IActionResult Refresh([FromBody] RefreshRequest request)
     {
         try
         {
-            // Usually the client SDK handles this, but we can expose an endpoint too.
-            // However, Supabase C# SDK session management is stateful.
-            // For a stateless API, we might just pass the refresh token to Gotrue directly if the SDK supports it cleanly.
-            // The Supabase-csharp client is often used as a stateful client.
-            // For this skeleton, we'll assume the client uses the Supabase JS SDK to refresh, 
-            // or we use the C# client to refresh session if needed.
-            
-            // NOTE: The C# Supabase client 'RefreshSession' might require a current session context.
-            // A simpler approach for backend-only refresh is effectively re-signing in or using the refresh token flow if exposed.
-            
-            // For now, we will return a 501 Not Implemented as standard frontend apps use the JS SDK for auto-refresh.
-            // If strictly required by the prompt "POST /auth/refresh", we can implement it via direct Gotrue call if SDK allows.
              return StatusCode(501, new { message = "Use Supabase Client SDK for token refresh" });
         }
         catch (Exception ex)
         {
              return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+/// Logs in a user and returns the JWT access token.
+/// </summary>
+[HttpPost("login")]
+public async Task<IActionResult> Login([FromBody] LoginRequest request)
+{
+    try
+    {
+        var session = await _supabase.Auth.SignIn(request.Email, request.Password);
+
+        if (session?.AccessToken == null)
+            return Unauthorized(new { error = "Invalid email or password." });
+
+        return Ok(new
+        {
+            accessToken  = session.AccessToken,
+            refreshToken = session.RefreshToken,
+            userId       = session.User!.Id
+        });
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Login failed for {Email}", request.Email);
+        return Unauthorized(new { error = "Invalid email or password." });
+    }
+}
+
+    /// <summary>
+    /// Debug: Test if JWKS endpoint is reachable
+    /// </summary>
+    [HttpGet("debug-jwks")]
+    public async Task<IActionResult> DebugJwks()
+    {
+        try
+        {
+            var supabaseUrl = _configuration["Supabase:Url"];
+            var jwksUrl = $"{supabaseUrl}/auth/v1/.well-known/openid-configuration";
+            
+            using var http = new HttpClient();
+            http.Timeout = TimeSpan.FromSeconds(10);
+            var response = await http.GetStringAsync(jwksUrl);
+            
+            return Ok(new { jwksUrl, response });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = ex.Message });
         }
     }
 
@@ -154,10 +213,7 @@ public class AuthController : ControllerBase
     {
         try
         {
-            // Note: If you need to specify a RedirectTo URL, check your Supabase C# library version docs.
-            // For now, we'll assume the default or configured site URL is used.
             await _supabase.Auth.ResetPasswordForEmail(request.Email);
-            
             return Ok(new { message = "Password reset email sent." });
         }
         catch (Exception ex)

@@ -1,3 +1,5 @@
+using System.Net.Http.Headers;
+
 namespace Taek.Api.Services;
 
 public class SupabaseStorageService
@@ -6,38 +8,54 @@ public class SupabaseStorageService
     {
         "image/jpeg",
         "image/png",
+        "image/webp",
         "application/pdf"
     };
 
-    private const long MaxBytes = 5 * 1024 * 1024;
+    private const long MaxBytes = 5 * 1024 * 1024; // 5MB
 
-    private readonly Supabase.Client _supabase;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IConfiguration _config;
 
-    public SupabaseStorageService(Supabase.Client supabase)
+    private string SupabaseUrl => _config["Supabase:Url"]!;
+    private string ServiceKey => _config["Supabase:ServiceRoleKey"]!;
+
+    public SupabaseStorageService(IHttpClientFactory httpClientFactory, IConfiguration config)
     {
-        _supabase = supabase;
+        _httpClientFactory = httpClientFactory;
+        _config = config;
     }
 
     public async Task<string> UploadAsync(string bucket, string objectPath, IFormFile file, CancellationToken cancellationToken)
     {
         if (file.Length <= 0 || file.Length > MaxBytes)
-        {
-            throw new InvalidOperationException("Invalid file size.");
-        }
+            throw new InvalidOperationException("File must be between 1 byte and 5MB.");
 
         if (!AllowedContentTypes.Contains(file.ContentType))
-        {
-            throw new InvalidOperationException("Invalid file type.");
-        }
+            throw new InvalidOperationException($"File type '{file.ContentType}' is not allowed.");
 
         await using var ms = new MemoryStream();
         await file.CopyToAsync(ms, cancellationToken);
-        var bytes = ms.ToArray();
+        ms.Position = 0;
 
-        await _supabase.Storage
-            .From(bucket)
-            .Upload(bytes, objectPath, new Supabase.Storage.FileOptions { ContentType = file.ContentType, Upsert = true });
+        var client = _httpClientFactory.CreateClient();
+        client.DefaultRequestHeaders.Add("apikey", ServiceKey);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ServiceKey);
 
-        return _supabase.Storage.From(bucket).GetPublicUrl(objectPath);
+        var uploadUrl = $"{SupabaseUrl}/storage/v1/object/{bucket}/{objectPath}";
+
+        var byteContent = new ByteArrayContent(ms.ToArray());
+        byteContent.Headers.ContentType = new MediaTypeHeaderValue(file.ContentType);
+
+        var response = await client.PostAsync(uploadUrl, byteContent, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException($"Storage upload failed: {error}");
+        }
+
+        // Return public URL
+        return $"{SupabaseUrl}/storage/v1/object/public/{bucket}/{objectPath}";
     }
 }

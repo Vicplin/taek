@@ -1,141 +1,145 @@
 using Microsoft.AspNetCore.Mvc;
+using System.Net.Http.Headers;
 using System.Security.Claims;
+using System.Text;
+using System.Text.Json;
 using Taek.Api.Attributes;
-using Taek.Api.Models.Db;
 using Taek.Api.Models.Profiles;
-using Taek.Api.Services;
 
 namespace Taek.Api.Controllers;
 
 [ApiController]
-[Route("organisers")]
+[Route("api/organisers")]
 [AuthorizeRole("organiser")]
 public class OrganisersController : ControllerBase
 {
-    private readonly Supabase.Client _supabase;
-    private readonly SupabaseStorageService _storage;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IConfiguration _config;
 
-    public OrganisersController(Supabase.Client supabase, SupabaseStorageService storage)
+    private string SupabaseUrl => _config["Supabase:Url"]!;
+    private string ServiceKey => _config["Supabase:ServiceRoleKey"]!;
+
+    public OrganisersController(IHttpClientFactory httpClientFactory, IConfiguration config)
     {
-        _supabase = supabase;
-        _storage = storage;
+        _httpClientFactory = httpClientFactory;
+        _config = config;
     }
 
+    // ─────────────────────────────────────────────
+    // HELPER
+    // ─────────────────────────────────────────────
 
+    private HttpClient CreateServiceClient()
+    {
+        var client = _httpClientFactory.CreateClient();
+        client.DefaultRequestHeaders.Add("apikey", ServiceKey);
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", ServiceKey);
+        return client;
+    }
 
+    private string? GetUserId() => User.FindFirstValue("sub");
+
+    // ─────────────────────────────────────────────
+    // PROFILE
+    // ─────────────────────────────────────────────
+
+    /// <summary>GET /api/organisers/profile</summary>
     [HttpGet("profile")]
     public async Task<IActionResult> GetProfile()
     {
-        var userId = User.FindFirstValue("sub");
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            return Unauthorized();
-        }
+        var userId = GetUserId();
+        if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
 
-        var profile = await _supabase.From<OrganiserProfile>().Where(p => p.UserId == userId).Single();
-        if (profile == null)
-        {
-            return NotFound();
-        }
+        var client = CreateServiceClient();
+        var url = $"{SupabaseUrl}/rest/v1/organiser_profiles?user_id=eq.{userId}&select=*&limit=1";
+        var response = await client.GetAsync(url);
+        var body = await response.Content.ReadAsStringAsync();
 
-        var appUser = await _supabase.From<AppUser>().Where(u => u.Id == userId).Single();
+        if (!response.IsSuccessStatusCode)
+            return StatusCode((int)response.StatusCode, new { error = body });
 
-        return Ok(new
-        {
-            user = new { id = appUser?.Id ?? userId, email = appUser?.Email, full_name = appUser?.FullName, role = appUser?.Role },
-            profile
-        });
+        var rows = JsonSerializer.Deserialize<List<JsonElement>>(body);
+        if (rows == null || rows.Count == 0)
+            return NotFound(new { error = "Organiser profile not found." });
+
+        return Ok(rows[0]);
     }
 
+    /// <summary>POST /api/organisers/profile — create profile (first time)</summary>
     [HttpPost("profile")]
     public async Task<IActionResult> CreateProfile([FromBody] UpsertOrganiserProfileRequest request)
     {
-        var userId = User.FindFirstValue("sub");
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            return Unauthorized();
-        }
+        var userId = GetUserId();
+        if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
 
-        var existing = await _supabase.From<OrganiserProfile>().Where(p => p.UserId == userId).Single();
-        if (existing != null)
-        {
-            return Conflict(new { error = "Profile already exists." });
-        }
+        // Check if profile already exists
+        var client = CreateServiceClient();
+        var checkUrl = $"{SupabaseUrl}/rest/v1/organiser_profiles?user_id=eq.{userId}&select=id&limit=1";
+        var checkResponse = await client.GetAsync(checkUrl);
+        var checkBody = await checkResponse.Content.ReadAsStringAsync();
+        var existing = JsonSerializer.Deserialize<List<JsonElement>>(checkBody);
 
-        var profile = new OrganiserProfile
+        if (existing != null && existing.Count > 0)
+            return Conflict(new { error = "Profile already exists. Use PUT to update." });
+
+        var payload = new
         {
-            UserId = userId,
-            OrgName = request.OrgName,
-            LogoUrl = request.LogoUrl,
-            ContactName = request.ContactName,
-            ContactEmail = request.ContactEmail,
-            ContactPhone = request.ContactPhone,
-            State = request.State,
-            VerificationStatus = "pending"
+            user_id = userId,
+            org_name = request.OrgName,
+            contact_name = request.ContactName,
+            contact_email = request.ContactEmail,
+            contact_phone = request.ContactPhone,
+            state = request.State
         };
 
-        await _supabase.From<OrganiserProfile>().Insert(profile);
+        client.DefaultRequestHeaders.Add("Prefer", "return=representation");
+        var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        var response = await client.PostAsync($"{SupabaseUrl}/rest/v1/organiser_profiles", content);
+        var body = await response.Content.ReadAsStringAsync();
 
-        var created = await _supabase.From<OrganiserProfile>().Where(p => p.UserId == userId).Single();
-        if (created == null)
-        {
-            return StatusCode(500, new { error = "Failed to create profile." });
-        }
+        if (!response.IsSuccessStatusCode)
+            return StatusCode((int)response.StatusCode, new { error = body });
 
-        return Ok(created);
+        var rows = JsonSerializer.Deserialize<List<JsonElement>>(body);
+        return Ok(rows?[0]);
     }
 
+    /// <summary>PUT /api/organisers/profile — update profile</summary>
     [HttpPut("profile")]
     public async Task<IActionResult> UpdateProfile([FromBody] UpsertOrganiserProfileRequest request)
     {
-        var userId = User.FindFirstValue("sub");
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            return Unauthorized();
-        }
+        var userId = GetUserId();
+        if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
 
-        var profile = await _supabase.From<OrganiserProfile>().Where(p => p.UserId == userId).Single();
-        if (profile == null)
-        {
-            return NotFound();
-        }
+        // Check profile exists
+        var client = CreateServiceClient();
+        var checkUrl = $"{SupabaseUrl}/rest/v1/organiser_profiles?user_id=eq.{userId}&select=id&limit=1";
+        var checkResponse = await client.GetAsync(checkUrl);
+        var checkBody = await checkResponse.Content.ReadAsStringAsync();
+        var existing = JsonSerializer.Deserialize<List<JsonElement>>(checkBody);
 
-        profile.OrgName = request.OrgName;
-        profile.LogoUrl = request.LogoUrl ?? profile.LogoUrl;
-        profile.ContactName = request.ContactName ?? profile.ContactName;
-        profile.ContactEmail = request.ContactEmail ?? profile.ContactEmail;
-        profile.ContactPhone = request.ContactPhone ?? profile.ContactPhone;
-        profile.State = request.State ?? profile.State;
+        if (existing == null || existing.Count == 0)
+            return NotFound(new { error = "Profile not found. Use POST to create." });
 
-        await _supabase.From<OrganiserProfile>().Update(profile);
+        var payload = new Dictionary<string, object?>();
+        if (!string.IsNullOrWhiteSpace(request.OrgName)) payload["org_name"] = request.OrgName;
+        if (request.ContactName != null) payload["contact_name"] = request.ContactName;
+        if (request.ContactEmail != null) payload["contact_email"] = request.ContactEmail;
+        if (request.ContactPhone != null) payload["contact_phone"] = request.ContactPhone;
+        if (request.State != null) payload["state"] = request.State;
+        payload["updated_at"] = DateTime.UtcNow;
 
-        var updated = await _supabase.From<OrganiserProfile>().Where(p => p.UserId == userId).Single();
-        return Ok(updated);
-    }
+        client.DefaultRequestHeaders.Add("Prefer", "return=representation");
+        var url = $"{SupabaseUrl}/rest/v1/organiser_profiles?user_id=eq.{userId}";
+        var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        var response = await client.PatchAsync(url, content);
+        var body = await response.Content.ReadAsStringAsync();
 
-    [HttpPost("profile/logo")]
-    public async Task<IActionResult> UploadLogo(IFormFile file, CancellationToken cancellationToken)
-    {
-        var userId = User.FindFirstValue("sub");
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            return Unauthorized();
-        }
+        if (!response.IsSuccessStatusCode)
+            return StatusCode((int)response.StatusCode, new { error = body });
 
-        var profile = await _supabase.From<OrganiserProfile>().Where(p => p.UserId == userId).Single();
-        if (profile == null)
-        {
-            return NotFound();
-        }
-
-        var ext = Path.GetExtension(file.FileName);
-        var objectPath = $"organisers/{userId}/logo-{Guid.NewGuid():N}{ext}";
-        var url = await _storage.UploadAsync("profile-uploads", objectPath, file, cancellationToken);
-
-        profile.LogoUrl = url;
-        await _supabase.From<OrganiserProfile>().Update(profile);
-
-        return Ok(new { logo_url = url });
+        var rows = JsonSerializer.Deserialize<List<JsonElement>>(body);
+        return Ok(rows?[0]);
     }
 }
-

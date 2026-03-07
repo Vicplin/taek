@@ -47,9 +47,12 @@ export default function EditAccountModal({
     setError(null);
     setSuccess(null);
     try {
-      await supabase
-        .from('profiles')
-        .upsert({ id: userId, full_name: fullName, phone_number: phone });
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ full_name: fullName, phone: phone })
+        .eq('id', userId);
+
+      if (updateError) throw updateError;
 
       if (email && email !== initialEmail) {
         const { error: emailError } = await supabase.auth.updateUser({ email });
@@ -58,14 +61,27 @@ export default function EditAccountModal({
         }
       }
 
-      const effectiveParent = isParent ? true : parentAcc;
-      const { error: metaError } = await supabase.auth.updateUser({ data: { is_parent: effectiveParent } });
-      if (metaError) {
-        console.warn('Failed to update user metadata is_parent:', metaError.message);
+      // Handle Role Upgrade via API
+      if (!isParent && parentAcc) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+          const res = await fetch(`${apiUrl}/api/users/upgrade-to-parent`, {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`
+            }
+          });
+          
+          if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.error || 'Failed to upgrade account');
+          }
+        }
       }
 
       setSuccess('Account updated');
-      onSave?.({ isParent: effectiveParent, fullName, email, phone });
+      onSave?.({ isParent: parentAcc, fullName, email, phone });
       setTimeout(onClose, 800);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Failed to update account';

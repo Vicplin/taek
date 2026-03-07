@@ -26,7 +26,7 @@ export default function HotBracketsSection({ tournaments }: { tournaments?: Tour
     <section className="py-20 relative overflow-hidden">
       {/* Background Elements */}
       <div className="absolute inset-0 bg-[#0a0a0a]" />
-      <div className="absolute inset-0 bg-[url('/images/grid.png')] opacity-10" />
+      <div className="absolute inset-0 opacity-10 bg-[linear-gradient(to_right,rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.08)_1px,transparent_1px)] bg-[length:32px_32px]" />
       <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-black to-transparent z-10" />
       <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black to-transparent z-10" />
       

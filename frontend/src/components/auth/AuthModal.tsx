@@ -57,7 +57,6 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'signin' }: A
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [isParent, setIsParent] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,91 +66,114 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'signin' }: A
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
     setError(null);
     setFieldErrors({});
-    setLoading(true);
+    setSuccessMessage(null);
 
+    // Basic validation
+    let hasError = false;
+    const newFieldErrors: Record<string, boolean> = {};
+
+    if (!email) { newFieldErrors.email = true; hasError = true; }
+    if (!password) { newFieldErrors.password = true; hasError = true; }
+    
     if (mode === 'signup') {
-      const newFieldErrors: Record<string, boolean> = {};
-
-      if (!fullName.trim()) {
-        newFieldErrors.fullName = true;
-        setFieldErrors(newFieldErrors);
-        setError('Full Name is required.');
-        setLoading(false);
-        return;
-      }
-      if (!email.trim()) {
-        newFieldErrors.email = true;
-        setFieldErrors(newFieldErrors);
-        setError('Email Address is required.');
-        setLoading(false);
-        return;
-      }
-      if (!phoneNumber.trim()) {
-        newFieldErrors.phoneNumber = true;
-        setFieldErrors(newFieldErrors);
-        setError('Phone Number is required.');
-        setLoading(false);
-        return;
-      }
-      if (password.length < 6) {
-        newFieldErrors.password = true;
-        setFieldErrors(newFieldErrors);
-        setError('Password must be at least 6 characters.');
-        setLoading(false);
-        return;
-      }
+      if (!fullName) { newFieldErrors.fullName = true; hasError = true; }
+      // Phone number is optional now, but let's keep it if user entered it
       if (password !== confirmPassword) {
-        newFieldErrors.confirmPassword = true;
-        setFieldErrors(newFieldErrors);
-        setError('Passwords do not match.');
+        setError("Passwords do not match");
+        setFieldErrors({...newFieldErrors, confirmPassword: true});
         setLoading(false);
         return;
       }
+    }
 
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-          data: {
-            full_name: fullName,
-            phone: phoneNumber,
-            account_type: isParent ? 'parent' : 'individual',
-          }
-        }
-      });
-
-      if (error) {
-        setError(error.message);
-        setLoading(false);
-        return;
-      }
-
-      setSuccessMessage('Account created! Check your email for a confirmation link.');
+    if (hasError) {
+      setFieldErrors(newFieldErrors);
+      setError("Please fill in all required fields");
       setLoading(false);
       return;
     }
 
-    if (mode === 'signin') {
-      console.log('Attempting sign in with:', email);
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
-      if (error) {
-        console.error('Sign in error:', error);
-        setError(error.message);
+    try {
+      if (mode === 'signup') {
+        const response = await fetch(`${apiUrl}/api/auth/register`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            email,
+            password,
+            fullName,
+            phoneNumber: phoneNumber || null,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          setError(data.error || 'Registration failed');
+          setLoading(false);
+          return;
+        }
+
+        setSuccessMessage(data.message || 'Registration successful! Please check your email to verify your account.');
         setLoading(false);
-        return;
-      }
+        // Optional: Switch to signin after a delay or let user do it
+        setTimeout(() => {
+          setMode('signin');
+          setSuccessMessage(null);
+        }, 3000);
 
-      console.log('Sign in successful, closing modal');
-      onClose();
+      } else {
+        // Sign In
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (signInError) {
+          setError(signInError.message);
+          setLoading(false);
+          return;
+        }
+
+        if (data.session) {
+          const token = data.session.access_token;
+          
+          // Verify user role via API
+          const res = await fetch(`${apiUrl}/api/auth/verify-user`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+
+          if (!res.ok) {
+            await supabase.auth.signOut();
+            const resData = await res.json().catch(() => ({}));
+            setError(resData.error || 'You do not have user access. Please use staff login.');
+            setLoading(false);
+            return;
+          }
+
+          console.log('Sign in successful, closing modal');
+          onClose();
+          setLoading(false);
+          window.location.reload(); // Force reload to update UI
+        } else {
+          setError('Invalid response from server.');
+          setLoading(false);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setError('An error occurred. Please try again.');
       setLoading(false);
-      window.location.reload(); // Force reload to update UI
     }
   };
 
@@ -376,29 +398,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'signin' }: A
                     </div>
                   </div>
 
-                  {/* Parent Account Toggle */}
-                  <div className="bg-black/40 border border-white/10 rounded-lg p-3 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="text-arena-red">
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                        </svg>
-                      </div>
-                      <div>
-                        <div className="text-sm font-bold text-white font-orbitron">Parent Account?</div>
-                        <div className="text-xs text-gray-500 font-rajdhani">Register as a parent to add multiple players</div>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsParent(!isParent)}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${isParent ? 'bg-white' : 'bg-gray-700'}`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-[#151515] transition-transform ${isParent ? 'translate-x-6' : 'translate-x-1'}`}
-                      />
-                    </button>
-                  </div>
+
                 </>
               )}
 

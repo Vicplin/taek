@@ -3,9 +3,12 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { useState } from 'react';
+import AuthModal from '../../auth/AuthModal';
 
 export default function Footer() {
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [initialAuthMode, setInitialAuthMode] = useState<'signin' | 'signup'>('signup');
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackEmail, setFeedbackEmail] = useState('');
   const [feedbackError, setFeedbackError] = useState('');
@@ -82,9 +85,15 @@ export default function Footer() {
             <ul className="space-y-4 text-gray-400 text-sm font-rajdhani">
               <li><Link href="/tournaments" className="hover:text-white transition-colors">Find Tournaments</Link></li>
               <li>
-                <Link href="/auth/signup" className="hover:text-white transition-colors">
+                <button
+                  onClick={() => {
+                    setInitialAuthMode('signup');
+                    setAuthModalOpen(true);
+                  }}
+                  className="hover:text-white transition-colors text-left"
+                >
                   Join Now
-                </Link>
+                </button>
               </li>
             </ul>
           </div>
@@ -196,6 +205,7 @@ export default function Footer() {
           </div>
         </div>
       )}
+      <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} initialMode={initialAuthMode} />
     </footer>
   );
 }

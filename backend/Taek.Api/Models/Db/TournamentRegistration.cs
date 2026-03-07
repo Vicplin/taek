@@ -16,17 +16,29 @@ public class TournamentRegistration : BaseModel
     [Reference(typeof(Tournament))]
     public Tournament? Tournament { get; set; }
 
-    [Column("fighter_id")]
+    [Column("player_id")]
     public string PlayerId { get; set; } = default!;
 
     [Reference(typeof(Player))]
     public Player? Player { get; set; }
 
-    [Column("category")]
-    public string? Category { get; set; }
+    [Column("competition_category_id")]
+    public string CompetitionCategoryId { get; set; } = default!;
+
+    [Column("competition_type")]
+    public string CompetitionType { get; set; } = default!;
+
+    [Column("club_id")]
+    public string? ClubId { get; set; }
+
+    [Reference(typeof(Club))]
+    public Club? Club { get; set; }
 
     [Column("status")]
-    public string Status { get; set; } = "PENDING";
+    public string Status { get; set; } = "pending";
+
+    [Column("rejection_reason")]
+    public string? RejectionReason { get; set; }
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; }

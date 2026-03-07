@@ -160,8 +160,35 @@ export default function UserDashboardPage() {
 
   useEffect(() => {
     const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        return;
+      }
+
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+      try {
+        const response = await fetch(`${apiUrl}/api/users/me`, {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          }
+        });
+
+        if (response.ok) {
+          const profile = await response.json();
+          setUser({
+            ...session.user,
+            ...profile, // This will override email/phone with DB values if present, and add role
+            full_name: profile.fullName // Map fullName to full_name for consistency if needed, or just use profile
+          });
+        } else {
+          // Fallback if API fails (e.g. offline), though role might be missing
+           setUser(session.user);
+        }
+      } catch (e) {
+        console.error('Error fetching user profile', e);
+         setUser(session.user);
+      }
     };
     getUser();
   }, []);
@@ -213,12 +240,19 @@ export default function UserDashboardPage() {
     fetchData();
   }, []);
 
-  const displayName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Member';
+  const displayName = user?.fullName || user?.full_name || user?.email?.split('@')[0] || 'Member';
   const email = user?.email || 'unknown@email.com';
   const joined = user?.created_at ? new Date(user.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }) : '15 Jan 2024';
-  const phone = user?.user_metadata?.phone || user?.phone || '-';
-  const isParentInitial = Boolean(user?.user_metadata?.is_parent);
+  const phone = user?.phone || '-';
+  const isParentInitial = user?.role === 'parent';
   const [isParentLocal, setIsParentLocal] = useState(isParentInitial);
+
+  // Sync local state when user profile loads
+  useEffect(() => {
+    if (user?.role) {
+      setIsParentLocal(user.role === 'parent');
+    }
+  }, [user]);
 
   const [players, setPlayers] = useState<Player[]>([]);
   const visiblePlayers = isParentLocal ? players : players.slice(0, Math.min(players.length, 1));

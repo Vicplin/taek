@@ -4,7 +4,7 @@ using Supabase.Postgrest.Models;
 
 namespace Taek.Api.Models.Db;
 
-[Table("fighters")]
+[Table("players")]
 public class Player : BaseModel
 {
     [PrimaryKey("id", false)]
@@ -19,17 +19,20 @@ public class Player : BaseModel
     [Column("ic_number")]
     public string? IcNumber { get; set; }
 
+    [Column("is_foreign")]
+    public bool IsForeign { get; set; } = false;
+
     [Column("date_of_birth")]
     public DateTime? DateOfBirth { get; set; }
 
-    [Column("gender")]
-    public string? Gender { get; set; }
+    [Column("gender_id")]
+    public string? GenderId { get; set; }
 
-    [Column("race")]
-    public string? Race { get; set; }
+    [Column("race_id")]
+    public string? RaceId { get; set; }
 
-    [Column("belt_rank")]
-    public string? BeltRank { get; set; }
+    [Column("belt_rank_id")]
+    public string? BeltRankId { get; set; }
 
     [Column("weight_kg")]
     public decimal? WeightKg { get; set; }
@@ -42,6 +45,12 @@ public class Player : BaseModel
 
     [Reference(typeof(Club))]
     public Club? Club { get; set; }
+
+    [Column("age_group")]
+    public string? AgeGroup { get; set; }
+
+    [Column("weight_class")]
+    public string? WeightClass { get; set; }
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; }

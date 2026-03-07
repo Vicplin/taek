@@ -1,40 +1,31 @@
 namespace Taek.Api.Models.Profiles;
 
-public record UpsertPlayerProfileRequest(
-    string? FullName,
-    DateTime? Dob,
-    string? IcNumber,
-    string? Nationality,
-    string? Gender,
-    string? Phone,
-    string? BeltRank,
+// Create player — IC parsing handles DOB for Malaysians
+public record CreatePlayerRequest(
+    string FullName,
+    string? IcNumber,        // MyKad format: YYMMDD-PB-XXXG
+    bool IsForeign,          // true = passport, DOB required manually
+    DateTime? DateOfBirth,   // required if IsForeign = true
+    string? GenderId,
+    string? RaceId,
+    string? BeltRankId,
     decimal? WeightKg,
-    string? ClubId,
-    string? State,
-    string? EmergencyContactName,
-    string? EmergencyContactPhone
+    decimal? HeightCm,
+    string? ClubId
 );
 
-public record UpsertCoachProfileRequest(
+public record UpdatePlayerRequest(
     string? FullName,
-    string? LicenceNo,
-    string? BeltRank,
-    string? AffiliatedClubId,
-    string? State,
-    string? Phone,
-    string? AvatarUrl
+    string? IcNumber,
+    bool? IsForeign,
+    DateTime? DateOfBirth,
+    string? GenderId,
+    string? RaceId,
+    string? BeltRankId,
+    decimal? WeightKg,
+    decimal? HeightCm,
+    string? ClubId
 );
 
-public record UpsertOrganiserProfileRequest(
-    string OrgName,
-    string? LogoUrl,
-    string? ContactName,
-    string? ContactEmail,
-    string? ContactPhone,
-    string? State
-);
-
-public record InviteAthleteRequest(string Email);
 
 public record RespondInvitationRequest(bool Accept);
-
